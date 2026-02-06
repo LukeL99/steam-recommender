@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { formatPlaytime, getGameHeaderImage } from '@/lib/steam';
 import Link from 'next/link';
+import GameDetailPanel from '@/components/GameDetailPanel';
 
 interface Game {
   appid: number;
@@ -31,6 +32,9 @@ export default function LibraryPage() {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<SortKey>('playtime');
   const [showUnplayed, setShowUnplayed] = useState(true);
+  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+
+  const handleClosePanel = useCallback(() => setSelectedGame(null), []);
 
   useEffect(() => {
     fetch('/api/library')
@@ -159,22 +163,23 @@ export default function LibraryPage() {
       {/* Game Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filteredGames.map(game => (
-          <GameCard key={game.appid} game={game} />
+          <GameCard key={game.appid} game={game} onClick={() => setSelectedGame(game)} />
         ))}
       </div>
+
+      {/* Game Detail Panel */}
+      <GameDetailPanel game={selectedGame} onClose={handleClosePanel} />
     </div>
   );
 }
 
-function GameCard({ game }: { game: Game }) {
+function GameCard({ game, onClick }: { game: Game; onClick: () => void }) {
   const [imgError, setImgError] = useState(false);
   
   return (
-    <a
-      href={`https://store.steampowered.com/app/${game.appid}`}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="card-hover group"
+    <button
+      onClick={onClick}
+      className="card-hover group text-left w-full cursor-pointer"
     >
       <div className="relative aspect-[460/215] bg-[#0a0f16]">
         {!imgError ? (
@@ -197,6 +202,15 @@ function GameCard({ game }: { game: Game }) {
             Recent
           </div>
         )}
+        {/* "Find Similar" hint on hover */}
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+          <span className="opacity-0 group-hover:opacity-100 transition-opacity text-white text-sm font-medium bg-steam-blue/90 backdrop-blur-sm px-3 py-1.5 rounded-full flex items-center gap-1.5">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+            </svg>
+            Find Similar
+          </span>
+        </div>
       </div>
       <div className="p-4">
         <h3 className="font-semibold text-white text-sm leading-tight truncate group-hover:text-steam-blue-hover transition-colors">
@@ -213,7 +227,7 @@ function GameCard({ game }: { game: Game }) {
           )}
         </div>
       </div>
-    </a>
+    </button>
   );
 }
 
