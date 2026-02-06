@@ -20,6 +20,7 @@ interface SimilarRec {
   reason: string;
   tags: string[];
   storeUrl?: string;
+  playtime_hours?: number;
 }
 
 interface GameDetailData {
@@ -35,6 +36,7 @@ interface GameDetailData {
     metacritic: number | null;
   };
   recommendations: SimilarRec[];
+  libraryOnly?: boolean;
 }
 
 interface GameDetailPanelProps {
@@ -46,15 +48,18 @@ export default function GameDetailPanel({ game, onClose }: GameDetailPanelProps)
   const [data, setData] = useState<GameDetailData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [libraryOnly, setLibraryOnly] = useState(false);
   const { getStatus, setStatus } = useGameStatuses();
 
-  const fetchSimilar = useCallback(async (appid: number) => {
+  const fetchSimilar = useCallback(async (appid: number, libOnly: boolean) => {
     setLoading(true);
     setError(null);
     setData(null);
 
     try {
-      const res = await fetch(`/api/similar?appid=${appid}`);
+      const params = new URLSearchParams({ appid: String(appid) });
+      if (libOnly) params.set('libraryOnly', 'true');
+      const res = await fetch(`/api/similar?${params}`);
       if (!res.ok) throw new Error('Failed to load recommendations');
       const d = await res.json();
       setData(d);
@@ -67,12 +72,13 @@ export default function GameDetailPanel({ game, onClose }: GameDetailPanelProps)
 
   useEffect(() => {
     if (game) {
-      fetchSimilar(game.appid);
+      fetchSimilar(game.appid, libraryOnly);
     } else {
       setData(null);
       setError(null);
+      setLibraryOnly(false);
     }
-  }, [game, fetchSimilar]);
+  }, [game, libraryOnly, fetchSimilar]);
 
   // Close on Escape key
   useEffect(() => {
@@ -213,11 +219,39 @@ export default function GameDetailPanel({ game, onClose }: GameDetailPanelProps)
 
         {/* Similar Games Section */}
         <div className="px-6 pb-8">
-          <div className="flex items-center gap-3 mb-5">
-            <svg className="w-5 h-5 text-steam-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-            </svg>
-            <h3 className="text-lg font-semibold text-white">Games Like {game.name}</h3>
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <svg className="w-5 h-5 text-steam-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+              </svg>
+              <h3 className="text-lg font-semibold text-white">Games Like {game.name}</h3>
+            </div>
+
+            {/* Discover New / In My Library toggle */}
+            <div className="flex rounded-lg overflow-hidden border border-[#2a3f5f]/50 text-xs font-medium flex-shrink-0">
+              <button
+                onClick={() => setLibraryOnly(false)}
+                className={`px-3 py-1.5 transition-colors ${
+                  !libraryOnly
+                    ? 'bg-steam-blue text-white'
+                    : 'bg-[#1e2837] text-steam-text-secondary hover:text-white'
+                }`}
+                disabled={loading}
+              >
+                Discover New
+              </button>
+              <button
+                onClick={() => setLibraryOnly(true)}
+                className={`px-3 py-1.5 transition-colors ${
+                  libraryOnly
+                    ? 'bg-steam-blue text-white'
+                    : 'bg-[#1e2837] text-steam-text-secondary hover:text-white'
+                }`}
+                disabled={loading}
+              >
+                In My Library
+              </button>
+            </div>
           </div>
 
           {/* Loading state */}
@@ -228,7 +262,9 @@ export default function GameDetailPanel({ game, onClose }: GameDetailPanelProps)
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                <span className="text-steam-text-secondary text-sm">Finding similar games with AI...</span>
+                <span className="text-steam-text-secondary text-sm">
+                  {libraryOnly ? 'Searching your library for hidden gems...' : 'Finding similar games with AI...'}
+                </span>
               </div>
               {Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="flex gap-4 p-4 rounded-lg bg-[#1e2837]">
@@ -252,7 +288,7 @@ export default function GameDetailPanel({ game, onClose }: GameDetailPanelProps)
             <div className="text-center py-8">
               <p className="text-red-400 mb-3">{error}</p>
               <button
-                onClick={() => fetchSimilar(game.appid)}
+                onClick={() => fetchSimilar(game.appid, libraryOnly)}
                 className="btn-blue text-sm px-4 py-2"
               >
                 Try Again
@@ -264,11 +300,13 @@ export default function GameDetailPanel({ game, onClose }: GameDetailPanelProps)
           {data && !loading && (
             <div className="space-y-4">
               {data.recommendations.map((rec, i) => (
-                <SimilarGameCard key={`${rec.name}-${i}`} rec={rec} />
+                <SimilarGameCard key={`${rec.name}-${i}`} rec={rec} isLibraryMode={!!data.libraryOnly} />
               ))}
               {data.recommendations.length === 0 && (
                 <p className="text-steam-text-secondary text-center py-8">
-                  No recommendations found. Try another game!
+                  {data.libraryOnly
+                    ? 'No similar games found in your library. Try "Discover New" instead!'
+                    : 'No recommendations found. Try another game!'}
                 </p>
               )}
             </div>
@@ -279,7 +317,7 @@ export default function GameDetailPanel({ game, onClose }: GameDetailPanelProps)
   );
 }
 
-function SimilarGameCard({ rec }: { rec: SimilarRec }) {
+function SimilarGameCard({ rec, isLibraryMode }: { rec: SimilarRec; isLibraryMode: boolean }) {
   const [imgError, setImgError] = useState(false);
   const { getStatus, setStatus } = useGameStatuses();
 
@@ -308,9 +346,26 @@ function SimilarGameCard({ rec }: { rec: SimilarRec }) {
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <h4 className="font-semibold text-white group-hover:text-steam-blue-hover transition-colors truncate">
-          {rec.name}
-        </h4>
+        <div className="flex items-center gap-2">
+          <h4 className="font-semibold text-white group-hover:text-steam-blue-hover transition-colors truncate">
+            {rec.name}
+          </h4>
+          {isLibraryMode && (
+            <span className="flex-shrink-0 text-[10px] bg-green-500/15 text-green-400 px-2 py-0.5 rounded-full font-medium">
+              Owned
+            </span>
+          )}
+        </div>
+
+        {/* Playtime for library games */}
+        {isLibraryMode && rec.playtime_hours !== undefined && (
+          <p className="text-xs text-steam-text-secondary mt-0.5">
+            {rec.playtime_hours > 0
+              ? `${rec.playtime_hours}h played`
+              : 'Never played — hidden gem!'}
+          </p>
+        )}
+
         <p className="text-sm text-steam-text mt-1 leading-relaxed line-clamp-2">{rec.reason}</p>
 
         <div className="flex flex-wrap gap-1.5 mt-2">
@@ -322,7 +377,21 @@ function SimilarGameCard({ rec }: { rec: SimilarRec }) {
         </div>
 
         <div className="flex items-center gap-3 mt-2">
-          {rec.storeUrl && (
+          {rec.appid && (
+            <a
+              href={`https://store.steampowered.com/app/${rec.appid}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-steam-blue hover:text-steam-blue-hover transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View on Steam
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+              </svg>
+            </a>
+          )}
+          {!rec.appid && rec.storeUrl && (
             <a
               href={rec.storeUrl}
               target="_blank"
@@ -338,8 +407,8 @@ function SimilarGameCard({ rec }: { rec: SimilarRec }) {
           )}
         </div>
 
-        {/* Status buttons */}
-        {rec.appid && (
+        {/* Status buttons - only show in discover mode */}
+        {!isLibraryMode && rec.appid && (
           <div className="mt-2">
             <StatusButtons
               appid={rec.appid}

@@ -218,3 +218,93 @@ Respond ONLY with a valid JSON array (no markdown, no code blocks) of objects wi
     throw new Error('Failed to parse similar recommendations');
   }
 }
+
+export interface LibrarySimilarRecommendation {
+  name: string;
+  appid: number;
+  reason: string;
+  tags: string[];
+  playtime_hours: number;
+}
+
+export async function getLibrarySimilarRecommendations(
+  game: SteamGame,
+  gameDetails: SteamGameDetails | null,
+  ownedGames: SteamGame[],
+  statusCtx?: StatusContext
+): Promise<LibrarySimilarRecommendation[]> {
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+  const gameInfo: Record<string, unknown> = {
+    name: game.name,
+    appid: game.appid,
+    playtime_hours: Math.round(game.playtime_forever / 60),
+  };
+
+  if (gameDetails) {
+    gameInfo.genres = gameDetails.genres?.map(g => g.description) || [];
+    gameInfo.categories = gameDetails.categories?.map(c => c.description) || [];
+    gameInfo.developers = gameDetails.developers || [];
+    gameInfo.short_description = gameDetails.short_description || '';
+  }
+
+  // Build a list of candidate games (exclude the game itself, and not-interested ones)
+  const notInterestedIds = new Set(statusCtx?.notInterested?.map(g => g.appid) || []);
+  const candidates = ownedGames
+    .filter(g => g.appid !== game.appid && !notInterestedIds.has(g.appid))
+    .map(g => ({
+      name: g.name,
+      appid: g.appid,
+      playtime_hours: Math.round(g.playtime_forever / 60),
+    }));
+
+  const statusSection = buildStatusPromptSection(statusCtx);
+
+  const prompt = `You are a Steam game recommendation engine. A user wants to find games ALREADY IN THEIR LIBRARY that are similar to a specific game. Help them discover hidden gems they already own.
+
+GAME THEY WANT SIMILAR TO:
+${JSON.stringify(gameInfo, null, 2)}
+
+THE USER'S FULL GAME LIBRARY (pick ONLY from this list):
+${JSON.stringify(candidates, null, 2)}${statusSection}
+
+Instructions:
+1. From the user's library above, find up to 6 games that are most SIMILAR to "${game.name}" in terms of genre, mechanics, themes, mood, and style
+2. You MUST only recommend games from the provided library list — do not suggest any game not in the list
+3. For each recommendation, explain specifically what makes it similar to "${game.name}"
+4. Prioritize games with low playtime that the user might have overlooked (hidden gems)
+5. Do NOT include "${game.name}" itself
+${statusCtx?.liked && statusCtx.liked.length > 0 ? '6. Consider the games they LIKED as additional taste signals' : ''}
+
+Respond ONLY with a valid JSON array (no markdown, no code blocks) of objects with these fields:
+- name: string (exact name from the library list)
+- appid: number (from the library list)
+- reason: string (1-2 sentences explaining why it's similar to "${game.name}" and why they should try it)
+- tags: string[] (3-5 genre/mechanic tags)`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text().trim();
+
+  let jsonStr = text;
+  if (jsonStr.startsWith('```')) {
+    jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+  }
+
+  try {
+    const recommendations: LibrarySimilarRecommendation[] = JSON.parse(jsonStr);
+
+    // Build a lookup for playtime from the actual library
+    const playtimeMap = new Map(ownedGames.map(g => [g.appid, Math.round(g.playtime_forever / 60)]));
+    const ownedAppIds = new Set(ownedGames.map(g => g.appid));
+
+    return recommendations
+      .filter(r => r.appid && ownedAppIds.has(r.appid) && r.appid !== game.appid)
+      .map(r => ({
+        ...r,
+        playtime_hours: playtimeMap.get(r.appid) ?? 0,
+      }));
+  } catch (e) {
+    console.error('Failed to parse Gemini library similar response:', text);
+    throw new Error('Failed to parse library similar recommendations');
+  }
+}
