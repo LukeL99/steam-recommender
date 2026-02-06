@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getOwnedGames, getGameDetails } from '@/lib/steam';
 import { getSimilarRecommendations } from '@/lib/gemini';
+import { getStatusSummaryForPrompt } from '@/lib/gameStatus';
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -26,7 +27,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Game not found in library' }, { status: 404 });
     }
 
-    const recommendations = await getSimilarRecommendations(ownedGame, gameDetails, games);
+    const statusCtx = getStatusSummaryForPrompt(session.steamId);
+    const recommendations = await getSimilarRecommendations(ownedGame, gameDetails, games, statusCtx);
 
     return NextResponse.json({
       game: {

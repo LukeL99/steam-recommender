@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getGameHeaderImage } from '@/lib/steam';
 import Link from 'next/link';
+import StatusButtons, { StatusBadge } from '@/components/StatusButtons';
+import { GameStatusProvider, useGameStatuses } from '@/components/GameStatusContext';
 
 interface Recommendation {
   name: string;
@@ -19,6 +21,14 @@ interface RecData {
 }
 
 export default function RecommendationsPage() {
+  return (
+    <GameStatusProvider>
+      <RecommendationsContent />
+    </GameStatusProvider>
+  );
+}
+
+function RecommendationsContent() {
   const [data, setData] = useState<RecData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +93,9 @@ export default function RecommendationsPage() {
         </button>
       </div>
 
+      {/* Game Search - Add non-library games */}
+      <GameSearch />
+
       {/* Loading State */}
       {loading && (
         <div className="text-center py-20">
@@ -119,8 +132,118 @@ export default function RecommendationsPage() {
   );
 }
 
+function GameSearch() {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<{ appid: number; name: string; icon: string }[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { getStatus, setStatus } = useGameStatuses();
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowResults(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  function handleSearch(q: string) {
+    setQuery(q);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    
+    if (q.length < 2) {
+      setResults([]);
+      setShowResults(false);
+      return;
+    }
+
+    timerRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(`/api/game-search?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        setResults(data.results || []);
+        setShowResults(true);
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+  }
+
+  return (
+    <div className="mb-8" ref={containerRef}>
+      <div className="card p-4">
+        <p className="text-sm text-steam-text-secondary mb-3">
+          🎮 Mark games you&apos;ve played outside Steam, games you liked, or games you&apos;re not interested in — this improves recommendations.
+        </p>
+        <div className="relative">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-steam-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search any Steam game to mark it..."
+            value={query}
+            onChange={e => handleSearch(e.target.value)}
+            onFocus={() => results.length > 0 && setShowResults(true)}
+            className="w-full pl-10 pr-4 py-3 bg-[#0a0f16] border border-[#2a3f5f]/50 rounded-lg text-white placeholder-steam-text-secondary focus:outline-none focus:border-steam-blue transition-colors"
+          />
+          {searching && (
+            <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-steam-blue animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+          )}
+        </div>
+
+        {/* Search results dropdown */}
+        {showResults && results.length > 0 && (
+          <div className="mt-2 bg-[#0a0f16] border border-[#2a3f5f]/50 rounded-lg overflow-hidden max-h-80 overflow-y-auto">
+            {results.map(game => {
+              const status = getStatus(game.appid);
+              return (
+                <div
+                  key={game.appid}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-[#1e2837] transition-colors border-b border-[#2a3f5f]/20 last:border-b-0"
+                >
+                  <img
+                    src={getGameHeaderImage(game.appid)}
+                    alt={game.name}
+                    className="w-24 h-11 object-cover rounded flex-shrink-0"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-white text-sm font-medium truncate">{game.name}</span>
+                      {status && <StatusBadge status={status} />}
+                    </div>
+                  </div>
+                  <StatusButtons
+                    appid={game.appid}
+                    name={game.name}
+                    currentStatus={status}
+                    onStatusChange={(appid, newStatus) => setStatus(appid, newStatus)}
+                    compact
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function RecommendationCard({ rec, index }: { rec: Recommendation; index: number }) {
   const [imgError, setImgError] = useState(false);
+  const { getStatus, setStatus } = useGameStatuses();
   
   const confidenceColors = {
     high: 'bg-green-500/20 text-green-400 border-green-500/30',
@@ -176,19 +299,30 @@ function RecommendationCard({ rec, index }: { rec: Recommendation; index: number
           ))}
         </div>
 
-        {rec.storeUrl && (
-          <a
-            href={rec.storeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-sm font-medium text-steam-blue hover:text-steam-blue-hover transition-colors"
-          >
-            View on Steam
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-            </svg>
-          </a>
-        )}
+        <div className="flex items-center gap-4 flex-wrap">
+          {rec.storeUrl && (
+            <a
+              href={rec.storeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-sm font-medium text-steam-blue hover:text-steam-blue-hover transition-colors"
+            >
+              View on Steam
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+              </svg>
+            </a>
+          )}
+          {rec.appid && (
+            <StatusButtons
+              appid={rec.appid}
+              name={rec.name}
+              currentStatus={getStatus(rec.appid)}
+              onStatusChange={(appid, status) => setStatus(appid, status)}
+              compact
+            />
+          )}
+        </div>
       </div>
     </div>
   );

@@ -20,7 +20,60 @@ export interface SimilarRecommendation {
   storeUrl?: string;
 }
 
-export async function getRecommendations(games: SteamGame[]): Promise<Recommendation[]> {
+export interface StatusContext {
+  played: { name: string; appid: number }[];
+  liked: { name: string; appid: number }[];
+  notInterested: { name: string; appid: number }[];
+}
+
+function buildStatusPromptSection(statusCtx?: StatusContext): string {
+  if (!statusCtx) return '';
+
+  const parts: string[] = [];
+
+  if (statusCtx.liked.length > 0) {
+    parts.push(`GAMES THE USER HAS LIKED (weigh these heavily for taste matching):
+${JSON.stringify(statusCtx.liked, null, 2)}`);
+  }
+
+  if (statusCtx.played.length > 0) {
+    parts.push(`GAMES THE USER HAS ALREADY PLAYED (on other platforms — do NOT recommend these):
+${JSON.stringify(statusCtx.played, null, 2)}`);
+  }
+
+  if (statusCtx.notInterested.length > 0) {
+    parts.push(`GAMES THE USER IS NOT INTERESTED IN (do NOT recommend these or similar ones):
+${JSON.stringify(statusCtx.notInterested, null, 2)}`);
+  }
+
+  return parts.length > 0 ? '\n\n' + parts.join('\n\n') : '';
+}
+
+function buildExclusionSet(
+  games: SteamGame[],
+  statusCtx?: StatusContext
+): { ownedAppIds: Set<number>; ownedNames: Set<string> } {
+  const ownedAppIds = new Set(games.map(g => g.appid));
+  const ownedNames = new Set(games.map(g => g.name.toLowerCase()));
+
+  if (statusCtx) {
+    for (const g of statusCtx.played) {
+      ownedAppIds.add(g.appid);
+      ownedNames.add(g.name.toLowerCase());
+    }
+    for (const g of statusCtx.notInterested) {
+      ownedAppIds.add(g.appid);
+      ownedNames.add(g.name.toLowerCase());
+    }
+  }
+
+  return { ownedAppIds, ownedNames };
+}
+
+export async function getRecommendations(
+  games: SteamGame[],
+  statusCtx?: StatusContext
+): Promise<Recommendation[]> {
   const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
   // Sort by playtime and take top games for context
@@ -34,15 +87,15 @@ export async function getRecommendations(games: SteamGame[]): Promise<Recommenda
       recently_played: (g.playtime_2weeks || 0) > 0,
     }));
 
-  const ownedAppIds = new Set(games.map(g => g.appid));
-  const ownedNames = new Set(games.map(g => g.name.toLowerCase()));
+  const { ownedAppIds, ownedNames } = buildExclusionSet(games, statusCtx);
+  const statusSection = buildStatusPromptSection(statusCtx);
 
   const prompt = `You are a Steam game recommendation engine. Analyze this user's game library (sorted by playtime) and recommend 10 games they would enjoy but DON'T already own.
 
 USER'S TOP GAMES (by playtime):
 ${JSON.stringify(topGames, null, 2)}
 
-TOTAL GAMES OWNED: ${games.length}
+TOTAL GAMES OWNED: ${games.length}${statusSection}
 
 Instructions:
 1. Identify patterns: genres, themes, mechanics, studios they prefer
@@ -50,6 +103,8 @@ Instructions:
 3. Mix well-known titles with hidden gems
 4. For each recommendation, explain WHY based on their specific library
 5. Include the Steam appid if you know it (look it up from memory)
+6. Do NOT recommend any game they already own, have already played, or marked as not interested
+${statusCtx?.liked && statusCtx.liked.length > 0 ? '7. Pay special attention to the games they LIKED — use those as strong signals for taste' : ''}
 
 Respond ONLY with a valid JSON array (no markdown, no code blocks) of objects with these fields:
 - name: string (exact Steam store name)
@@ -70,7 +125,7 @@ Respond ONLY with a valid JSON array (no markdown, no code blocks) of objects wi
   try {
     const recommendations: Recommendation[] = JSON.parse(jsonStr);
     
-    // Filter out games the user already owns
+    // Filter out games the user already owns or has marked
     return recommendations
       .filter(r => {
         if (r.appid && ownedAppIds.has(r.appid)) return false;
@@ -92,12 +147,13 @@ Respond ONLY with a valid JSON array (no markdown, no code blocks) of objects wi
 export async function getSimilarRecommendations(
   game: SteamGame,
   gameDetails: SteamGameDetails | null,
-  ownedGames: SteamGame[]
+  ownedGames: SteamGame[],
+  statusCtx?: StatusContext
 ): Promise<SimilarRecommendation[]> {
   const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-  const ownedAppIds = new Set(ownedGames.map(g => g.appid));
-  const ownedNames = new Set(ownedGames.map(g => g.name.toLowerCase()));
+  const { ownedAppIds, ownedNames } = buildExclusionSet(ownedGames, statusCtx);
+  const statusSection = buildStatusPromptSection(statusCtx);
 
   const gameInfo: Record<string, unknown> = {
     name: game.name,
@@ -118,14 +174,15 @@ GAME THEY WANT SIMILAR TO:
 ${JSON.stringify(gameInfo, null, 2)}
 
 THE USER ALREADY OWNS THESE GAMES (do NOT recommend any of these):
-${JSON.stringify(ownedGames.map(g => ({ name: g.name, appid: g.appid })).slice(0, 200), null, 2)}
+${JSON.stringify(ownedGames.map(g => ({ name: g.name, appid: g.appid })).slice(0, 200), null, 2)}${statusSection}
 
 Instructions:
 1. Recommend 6 games that are SIMILAR to "${game.name}" in terms of genre, mechanics, themes, mood, and style
-2. Do NOT recommend any game the user already owns (check the owned list!)
+2. Do NOT recommend any game the user already owns, has already played, or marked as not interested
 3. For each recommendation, explain specifically what makes it similar to "${game.name}"
 4. Include the Steam appid if you know it
 5. Mix popular titles with lesser-known gems
+${statusCtx?.liked && statusCtx.liked.length > 0 ? '6. Consider the games they LIKED as additional taste signals' : ''}
 
 Respond ONLY with a valid JSON array (no markdown, no code blocks) of objects with these fields:
 - name: string (exact Steam store name)

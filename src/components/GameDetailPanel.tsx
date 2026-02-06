@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { formatPlaytime, getGameHeaderImage } from '@/lib/steam';
+import StatusButtons from '@/components/StatusButtons';
+import { useGameStatuses } from '@/components/GameStatusContext';
 
 interface Game {
   appid: number;
@@ -44,6 +46,7 @@ export default function GameDetailPanel({ game, onClose }: GameDetailPanelProps)
   const [data, setData] = useState<GameDetailData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { getStatus, setStatus } = useGameStatuses();
 
   const fetchSimilar = useCallback(async (appid: number) => {
     setLoading(true);
@@ -149,8 +152,18 @@ export default function GameDetailPanel({ game, onClose }: GameDetailPanelProps)
           </div>
         </div>
 
+        {/* Status buttons for this game */}
+        <div className="px-6 pt-4">
+          <StatusButtons
+            appid={game.appid}
+            name={game.name}
+            currentStatus={getStatus(game.appid)}
+            onStatusChange={(appid, status) => setStatus(appid, status)}
+          />
+        </div>
+
         {/* Game details */}
-        <div className="px-6 pt-4 pb-2">
+        <div className="px-6 pt-3 pb-2">
           {data?.game?.short_description && (
             <p className="text-sm text-steam-text leading-relaxed mb-4">{data.game.short_description}</p>
           )}
@@ -268,6 +281,7 @@ export default function GameDetailPanel({ game, onClose }: GameDetailPanelProps)
 
 function SimilarGameCard({ rec }: { rec: SimilarRec }) {
   const [imgError, setImgError] = useState(false);
+  const { getStatus, setStatus } = useGameStatuses();
 
   return (
     <div className="flex gap-4 p-4 rounded-lg bg-[#1e2837] border border-[#2a3f5f]/30 hover:border-steam-blue/30 transition-all group">
@@ -307,19 +321,34 @@ function SimilarGameCard({ rec }: { rec: SimilarRec }) {
           ))}
         </div>
 
-        {rec.storeUrl && (
-          <a
-            href={rec.storeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-steam-blue hover:text-steam-blue-hover transition-colors mt-2"
-            onClick={(e) => e.stopPropagation()}
-          >
-            View on Steam
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-            </svg>
-          </a>
+        <div className="flex items-center gap-3 mt-2">
+          {rec.storeUrl && (
+            <a
+              href={rec.storeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-steam-blue hover:text-steam-blue-hover transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View on Steam
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+              </svg>
+            </a>
+          )}
+        </div>
+
+        {/* Status buttons */}
+        {rec.appid && (
+          <div className="mt-2">
+            <StatusButtons
+              appid={rec.appid}
+              name={rec.name}
+              currentStatus={getStatus(rec.appid)}
+              onStatusChange={(appid, status) => setStatus(appid, status)}
+              compact
+            />
+          </div>
         )}
       </div>
     </div>
