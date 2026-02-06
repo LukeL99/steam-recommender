@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-steam-darker text-steam-text;
+  }
+}
+
+@layer components {
+  .btn-steam {
+    @apply bg-gradient-to-b from-[#5c7e10] to-[#4c6b22] text-white font-medium 
+           px-6 py-3 rounded hover:from-[#6e9414] hover:to-[#5c7e10] 
+           transition-all duration-200 shadow-lg hover:shadow-xl
+           active:from-[#4c6b22] active:to-[#3d5a16];
+  }
+  
+  .btn-blue {
+    @apply bg-steam-blue text-white font-medium px-6 py-3 rounded 
+           hover:bg-steam-blue-hover transition-all duration-200;
+  }
+  
+  .card {
+    @apply bg-[#1e2837] rounded-lg overflow-hidden shadow-lg 
+           border border-[#2a3f5f]/30 hover:border-steam-blue/30 
+           transition-all duration-300;
+  }
+  
+  .card-hover {
+    @apply card hover:transform hover:scale-[1.02] hover:shadow-2xl;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1b2838;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4a6278;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #66c0f4;
+}
+
+/* Loading skeleton animation */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #1e2837 25%,
+    #2a3f5f 50%,
+    #1e2837 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
