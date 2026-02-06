@@ -227,6 +227,159 @@ export interface LibrarySimilarRecommendation {
   playtime_hours: number;
 }
 
+export interface GenreSearchRecommendation {
+  name: string;
+  appid: number | null;
+  reason: string;
+  tags: string[];
+  storeUrl?: string;
+}
+
+export interface GenreLibraryRecommendation {
+  name: string;
+  appid: number;
+  reason: string;
+  tags: string[];
+  playtime_hours: number;
+}
+
+export async function getGenreSearchRecommendations(
+  query: string,
+  ownedGames: SteamGame[],
+  statusCtx?: StatusContext
+): Promise<GenreSearchRecommendation[]> {
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+  const { ownedAppIds, ownedNames } = buildExclusionSet(ownedGames, statusCtx);
+  const statusSection = buildStatusPromptSection(statusCtx);
+
+  const topGames = [...ownedGames]
+    .sort((a, b) => b.playtime_forever - a.playtime_forever)
+    .slice(0, 30)
+    .map(g => ({
+      name: g.name,
+      appid: g.appid,
+      playtime_hours: Math.round(g.playtime_forever / 60),
+    }));
+
+  const prompt = `You are a Steam game recommendation engine. A user is searching for games matching a specific genre, tag, or vibe. Recommend games they would enjoy based on the query AND their personal taste.
+
+USER'S SEARCH QUERY: "${query}"
+
+USER'S TOP GAMES (by playtime, for taste matching):
+${JSON.stringify(topGames, null, 2)}
+
+TOTAL GAMES OWNED: ${ownedGames.length}${statusSection}
+
+Instructions:
+1. Recommend 8 games that match the query "${query}" AND align with the user's taste based on their library
+2. Do NOT recommend any game the user already owns, has already played, or marked as not interested
+3. For each recommendation, explain why it matches "${query}" AND why it suits THIS user specifically
+4. Include the Steam appid if you know it
+5. Mix well-known titles with hidden gems
+6. Interpret the query broadly — it could be a genre (RPG, roguelite), a tag (souls-like, cozy), a mood (relaxing, intense), or a vibe (like Dark Souls but easier)
+${statusCtx?.liked && statusCtx.liked.length > 0 ? '7. Pay special attention to the games they LIKED — use those as strong signals for taste' : ''}
+
+Respond ONLY with a valid JSON array (no markdown, no code blocks) of objects with these fields:
+- name: string (exact Steam store name)
+- appid: number or null (Steam app ID if known)
+- reason: string (2-3 sentences: why it matches "${query}" and why this user would like it)
+- tags: string[] (3-5 genre/mechanic tags)`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text().trim();
+
+  let jsonStr = text;
+  if (jsonStr.startsWith('```')) {
+    jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+  }
+
+  try {
+    const recommendations: GenreSearchRecommendation[] = JSON.parse(jsonStr);
+
+    return recommendations
+      .filter(r => {
+        if (r.appid && ownedAppIds.has(r.appid)) return false;
+        if (ownedNames.has(r.name.toLowerCase())) return false;
+        return true;
+      })
+      .map(r => ({
+        ...r,
+        storeUrl: r.appid
+          ? `https://store.steampowered.com/app/${r.appid}`
+          : `https://store.steampowered.com/search/?term=${encodeURIComponent(r.name)}`,
+      }));
+  } catch (e) {
+    console.error('Failed to parse Gemini genre search response:', text);
+    throw new Error('Failed to parse genre search recommendations');
+  }
+}
+
+export async function getGenreLibraryRecommendations(
+  query: string,
+  ownedGames: SteamGame[],
+  statusCtx?: StatusContext
+): Promise<GenreLibraryRecommendation[]> {
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+  const notInterestedIds = new Set(statusCtx?.notInterested?.map(g => g.appid) || []);
+  const candidates = ownedGames
+    .filter(g => !notInterestedIds.has(g.appid))
+    .map(g => ({
+      name: g.name,
+      appid: g.appid,
+      playtime_hours: Math.round(g.playtime_forever / 60),
+    }));
+
+  const statusSection = buildStatusPromptSection(statusCtx);
+
+  const prompt = `You are a Steam game recommendation engine. A user wants to find games ALREADY IN THEIR LIBRARY that match a specific genre, tag, or vibe. Help them discover hidden gems they already own.
+
+USER'S SEARCH QUERY: "${query}"
+
+THE USER'S FULL GAME LIBRARY (pick ONLY from this list):
+${JSON.stringify(candidates, null, 2)}${statusSection}
+
+Instructions:
+1. From the user's library above, find up to 8 games that best match "${query}"
+2. You MUST only recommend games from the provided library list — do not suggest any game not in the list
+3. For each recommendation, explain why it matches "${query}" and why they should play it
+4. Prioritize games with low playtime that the user might have overlooked (hidden gems they bought but never played)
+5. Interpret the query broadly — it could be a genre (RPG, roguelite), a tag (souls-like, cozy), a mood (relaxing, intense), or a vibe
+${statusCtx?.liked && statusCtx.liked.length > 0 ? '6. Consider the games they LIKED as additional taste signals' : ''}
+
+Respond ONLY with a valid JSON array (no markdown, no code blocks) of objects with these fields:
+- name: string (exact name from the library list)
+- appid: number (from the library list)
+- reason: string (2-3 sentences: why it matches "${query}" and why they should try it)
+- tags: string[] (3-5 genre/mechanic tags)`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text().trim();
+
+  let jsonStr = text;
+  if (jsonStr.startsWith('```')) {
+    jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+  }
+
+  try {
+    const recommendations: GenreLibraryRecommendation[] = JSON.parse(jsonStr);
+
+    const playtimeMap = new Map(ownedGames.map(g => [g.appid, Math.round(g.playtime_forever / 60)]));
+    const ownedAppIds = new Set(ownedGames.map(g => g.appid));
+
+    return recommendations
+      .filter(r => r.appid && ownedAppIds.has(r.appid))
+      .map(r => ({
+        ...r,
+        playtime_hours: playtimeMap.get(r.appid) ?? 0,
+      }));
+  } catch (e) {
+    console.error('Failed to parse Gemini genre library response:', text);
+    throw new Error('Failed to parse genre library recommendations');
+  }
+}
+
 export async function getLibrarySimilarRecommendations(
   game: SteamGame,
   gameDetails: SteamGameDetails | null,
