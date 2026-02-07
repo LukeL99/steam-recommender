@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  experimental: {
+    outputFileTracingIncludes: {
+      '/api/**': ['./node_modules/better-sqlite3/**/*'],
+    },
+  },
   images: {
     remotePatterns: [
       {
