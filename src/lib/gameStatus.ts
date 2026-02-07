@@ -1,3 +1,6 @@
+// TODO: This module uses file-based JSON storage which won't persist on ephemeral
+// filesystems (e.g., AWS Amplify, serverless). Migrate to a database backend
+// (DynamoDB or similar) for reliable persistence across deployments and instances.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 

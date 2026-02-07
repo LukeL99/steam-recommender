@@ -2,9 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getPlayerSummary } from '@/lib/steam';
 
-const REALM = process.env.NEXT_PUBLIC_URL || 'https://steam.lukelab.click';
+function getBaseUrl(request: NextRequest): string {
+  if (process.env.NEXT_PUBLIC_URL) return process.env.NEXT_PUBLIC_URL;
+  const proto = request.headers.get('x-forwarded-proto') || 'https';
+  const host = request.headers.get('host') || 'localhost:3000';
+  return `${proto}://${host}`;
+}
 
 export async function GET(request: NextRequest) {
+  const baseUrl = getBaseUrl(request);
   const searchParams = request.nextUrl.searchParams;
 
   // Verify the OpenID response with Steam
@@ -23,7 +29,7 @@ export async function GET(request: NextRequest) {
   const verifyBody = await verifyRes.text();
 
   if (!verifyBody.includes('is_valid:true')) {
-    return NextResponse.redirect(new URL('/?error=auth_failed', REALM));
+    return NextResponse.redirect(new URL('/?error=auth_failed', baseUrl));
   }
 
   // Extract Steam ID from claimed_id
@@ -31,7 +37,7 @@ export async function GET(request: NextRequest) {
   const steamIdMatch = claimedId?.match(/\/id\/(\d+)$/) || claimedId?.match(/(\d+)$/);
   
   if (!steamIdMatch) {
-    return NextResponse.redirect(new URL('/?error=no_steamid', REALM));
+    return NextResponse.redirect(new URL('/?error=no_steamid', baseUrl));
   }
 
   const steamId = steamIdMatch[1];
@@ -54,5 +60,5 @@ export async function GET(request: NextRequest) {
     await session.save();
   }
 
-  return NextResponse.redirect(new URL('/library', REALM));
+  return NextResponse.redirect(new URL('/library', baseUrl));
 }
