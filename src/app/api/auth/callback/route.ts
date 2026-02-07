@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/session';
 import { getPlayerSummary } from '@/lib/steam';
+import { cacheUserProfile } from '@/lib/cache';
 
 function getBaseUrl(request: NextRequest): string {
   if (process.env.NEXT_PUBLIC_URL) return process.env.NEXT_PUBLIC_URL;
@@ -51,6 +52,13 @@ export async function GET(request: NextRequest) {
     session.displayName = player?.personaname || 'Steam User';
     session.avatar = player?.avatarfull || player?.avatar || '';
     await session.save();
+
+    // Cache the user profile in SQLite
+    cacheUserProfile(steamId, {
+      displayName: player?.personaname || 'Steam User',
+      avatarUrl: player?.avatarfull || player?.avatar || null,
+      profileUrl: player?.profileurl || null,
+    });
   } catch (e) {
     console.error('Failed to get player summary:', e);
     const session = await getSession();

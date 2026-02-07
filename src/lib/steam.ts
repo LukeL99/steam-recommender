@@ -77,3 +77,19 @@ export function formatPlaytime(minutes: number): string {
   if (hours >= 100) return `${hours}h`;
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
+
+export async function getGameTags(appid: number): Promise<{ tag: string; rank: number }[]> {
+  try {
+    // Try SteamSpy API for community tags
+    const res = await fetch(`https://steamspy.com/api.php?request=appdetails&appid=${appid}`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!data.tags || typeof data.tags !== 'object') return [];
+    return Object.entries(data.tags).map(([tag], i) => ({ tag, rank: i }));
+  } catch {
+    // SteamSpy failures are non-critical
+    return [];
+  }
+}

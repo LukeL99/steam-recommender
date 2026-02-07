@@ -1,6 +1,6 @@
-import Database from 'better-sqlite3';
-import { existsSync, mkdirSync, readFileSync, renameSync } from 'fs';
+import { existsSync, readFileSync, renameSync } from 'fs';
 import { join } from 'path';
+import { getDb } from './db';
 
 export type GameStatusType = 'played' | 'liked' | 'not_interested';
 
@@ -16,37 +16,14 @@ export interface UserStatuses {
 }
 
 const DATA_DIR = process.env.DATA_DIR || join(process.cwd(), 'data');
-const DB_PATH = join(DATA_DIR, 'game-statuses.db');
 const LEGACY_JSON_PATH = join(DATA_DIR, 'game-statuses.json');
 
-let db: Database.Database | null = null;
+let migrated = false;
 
-function getDb(): Database.Database {
-  if (db) return db;
-
-  if (!existsSync(DATA_DIR)) {
-    mkdirSync(DATA_DIR, { recursive: true });
-  }
-
-  db = new Database(DB_PATH);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS game_statuses (
-      steam_id TEXT NOT NULL,
-      app_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      status TEXT NOT NULL CHECK(status IN ('played', 'liked', 'not_interested')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      PRIMARY KEY (steam_id, app_id)
-    );
-  `);
-
-  // Migrate legacy JSON data if it exists
+function ensureMigrated(): void {
+  if (migrated) return;
+  migrated = true;
   migrateFromJson();
-
-  return db;
 }
 
 function migrateFromJson(): void {
@@ -56,12 +33,13 @@ function migrateFromJson(): void {
     const raw = readFileSync(LEGACY_JSON_PATH, 'utf-8');
     const store: Record<string, Record<string, { appid: number; name: string; status: string; updatedAt: string }>> = JSON.parse(raw);
 
-    const insert = getDb().prepare(`
+    const db = getDb();
+    const insert = db.prepare(`
       INSERT OR REPLACE INTO game_statuses (steam_id, app_id, name, status, updated_at)
       VALUES (@steamId, @appId, @name, @status, @updatedAt)
     `);
 
-    const migrate = getDb().transaction(() => {
+    const migrate = db.transaction(() => {
       for (const [steamId, statuses] of Object.entries(store)) {
         for (const entry of Object.values(statuses)) {
           insert.run({
@@ -83,6 +61,7 @@ function migrateFromJson(): void {
 }
 
 export function getUserStatuses(steamId: string): UserStatuses {
+  ensureMigrated();
   const rows = getDb().prepare(
     'SELECT app_id, name, status, updated_at FROM game_statuses WHERE steam_id = ?'
   ).all(steamId) as { app_id: number; name: string; status: GameStatusType; updated_at: string }[];
@@ -105,6 +84,7 @@ export function setGameStatus(
   name: string,
   status: GameStatusType
 ): GameStatusEntry {
+  ensureMigrated();
   const now = new Date().toISOString();
 
   getDb().prepare(`
@@ -120,6 +100,7 @@ export function setGameStatus(
 }
 
 export function removeGameStatus(steamId: string, appid: number): boolean {
+  ensureMigrated();
   const result = getDb().prepare(
     'DELETE FROM game_statuses WHERE steam_id = ? AND app_id = ?'
   ).run(steamId, appid);
@@ -128,6 +109,7 @@ export function removeGameStatus(steamId: string, appid: number): boolean {
 }
 
 export function getGamesByStatus(steamId: string, status: GameStatusType): GameStatusEntry[] {
+  ensureMigrated();
   const rows = getDb().prepare(
     'SELECT app_id, name, status, updated_at FROM game_statuses WHERE steam_id = ? AND status = ?'
   ).all(steamId, status) as { app_id: number; name: string; status: GameStatusType; updated_at: string }[];

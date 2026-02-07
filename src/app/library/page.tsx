@@ -66,6 +66,7 @@ function LibraryContent() {
   const [sortBy, setSortBy] = useState<SortKey>('playtime');
   const [showUnplayed, setShowUnplayed] = useState(true);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Genre search state
   const [genreQuery, setGenreQuery] = useState('');
@@ -76,8 +77,9 @@ function LibraryContent() {
 
   const handleClosePanel = useCallback(() => setSelectedGame(null), []);
 
-  useEffect(() => {
-    fetch('/api/library')
+  const fetchLibrary = useCallback((refresh = false) => {
+    const url = refresh ? '/api/library?refresh=true' : '/api/library';
+    return fetch(url)
       .then(res => {
         if (res.status === 401) {
           window.location.href = '/';
@@ -87,9 +89,25 @@ function LibraryContent() {
         return res.json();
       })
       .then(d => { if (d) setData(d); })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch(e => setError(e.message));
   }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetch('/api/library/refresh', { method: 'POST' });
+      await fetchLibrary(true);
+    } catch (e) {
+      console.error('Refresh failed:', e);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchLibrary]);
+
+  useEffect(() => {
+    fetchLibrary()
+      .finally(() => setLoading(false));
+  }, [fetchLibrary]);
 
   const searchGenre = useCallback(async (query: string, libOnly: boolean) => {
     if (!query.trim()) return;
@@ -191,6 +209,17 @@ function LibraryContent() {
             </div>
           </div>
           <div className="flex gap-3">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="px-4 py-3 rounded text-steam-text-secondary hover:text-white hover:bg-[#2a3f5f]/50 transition-colors disabled:opacity-50 flex items-center gap-2"
+              title="Refresh Library"
+            >
+              <svg className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.984 4.364v4.992" />
+              </svg>
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
             <Link href="/recommendations" className="btn-steam flex items-center gap-2">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
