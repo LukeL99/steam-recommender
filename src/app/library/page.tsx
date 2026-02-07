@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { formatPlaytime, getGameHeaderImage } from '@/lib/steam';
 import Link from 'next/link';
 import GameDetailPanel from '@/components/GameDetailPanel';
 import { GameStatusProvider, useGameStatuses } from '@/components/GameStatusContext';
 import { StatusBadge } from '@/components/StatusButtons';
 import StatusButtons from '@/components/StatusButtons';
+import { VirtuosoGrid } from 'react-virtuoso';
 
 interface Game {
   appid: number;
@@ -44,11 +45,31 @@ interface GenreSearchResult {
 
 type SortKey = 'playtime' | 'name' | 'recent';
 
-const QUICK_GENRES = [
-  'Roguelite', 'RPG', 'Metroidvania', 'Strategy', 'Horror',
-  'Cozy', 'Souls-like', 'Survival', 'Puzzle', 'Indie Gems',
-  'Open World', 'Co-op',
-];
+const QUICK_PICKS: Record<string, string[]> = {
+  'Genres': ['Roguelite', 'RPG', 'Metroidvania', 'Strategy', 'Horror', 'Puzzle', 'Platformer', 'Simulation'],
+  'Vibes': ['Cozy', 'Relaxing', 'Intense', 'Story-Rich', 'Atmospheric', 'Funny', 'Dark'],
+  'Play Style': ['Couch Co-op', 'Online Multiplayer', 'Solo Adventure', 'Local PvP', 'Drop-in Drop-out'],
+  'Practical': ['Controller Support', 'Short Sessions', 'Steam Deck Verified', 'Free to Play', 'Indie Gems'],
+};
+
+const gridComponents = {
+  List: React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({ style, children, ...props }, ref) => (
+    <div
+      ref={ref}
+      {...props}
+      style={style}
+      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+    >
+      {children}
+    </div>
+  )),
+  Item: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+    <div {...props}>
+      {children}
+    </div>
+  ),
+};
+gridComponents.List.displayName = 'GridList';
 
 export default function LibraryPage() {
   return (
@@ -275,20 +296,25 @@ function LibraryContent() {
         </form>
 
         {/* Quick-pick genre pills */}
-        <div className="flex flex-wrap gap-2">
-          {QUICK_GENRES.map(genre => (
-            <button
-              key={genre}
-              onClick={() => handleQuickGenre(genre)}
-              disabled={genreLoading}
-              className={`text-sm px-4 py-1.5 rounded-full border transition-all duration-200 font-medium disabled:opacity-50
-                ${genreResults?.query === genre
-                  ? 'border-steam-blue bg-steam-blue/20 text-steam-blue'
-                  : 'border-[#2a3f5f]/50 text-steam-text-secondary hover:border-steam-blue/50 hover:text-white hover:bg-[#2a3f5f]/30'
-                }`}
-            >
-              {genre}
-            </button>
+        <div className="space-y-3">
+          {Object.entries(QUICK_PICKS).map(([category, picks]) => (
+            <div key={category} className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-steam-text-secondary font-medium w-20 flex-shrink-0">{category}</span>
+              {picks.map(pick => (
+                <button
+                  key={pick}
+                  onClick={() => handleQuickGenre(pick)}
+                  disabled={genreLoading}
+                  className={`text-sm px-4 py-1.5 rounded-full border transition-all duration-200 font-medium disabled:opacity-50
+                    ${genreResults?.query === pick
+                      ? 'border-steam-blue bg-steam-blue/20 text-steam-blue'
+                      : 'border-[#2a3f5f]/50 text-steam-text-secondary hover:border-steam-blue/50 hover:text-white hover:bg-[#2a3f5f]/30'
+                    }`}
+                >
+                  {pick}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
       </div>
@@ -454,11 +480,19 @@ function LibraryContent() {
       </p>
 
       {/* Game Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {filteredGames.map(game => (
-          <GameCard key={game.appid} game={game} onClick={() => setSelectedGame(game)} />
-        ))}
-      </div>
+      <VirtuosoGrid
+        useWindowScroll
+        totalCount={filteredGames.length}
+        components={gridComponents}
+        overscan={600}
+        itemContent={(index) => (
+          <GameCard
+            key={filteredGames[index].appid}
+            game={filteredGames[index]}
+            onClick={() => setSelectedGame(filteredGames[index])}
+          />
+        )}
+      />
 
       {/* Game Detail Panel */}
       <GameDetailPanel game={selectedGame} onClose={handleClosePanel} />
